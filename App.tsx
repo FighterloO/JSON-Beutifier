@@ -93,6 +93,39 @@ const PaletteIcon = () => (
     </svg>
 );
 
+interface SearchBoxProps {
+    searchTerm: string;
+    onSearchChange: (term: string) => void;
+    onPrev: () => void;
+    onNext: () => void;
+    matchCount: number;
+    currentMatchIndex: number;
+}
+
+const SearchBox: React.FC<SearchBoxProps> = ({ searchTerm, onSearchChange, onPrev, onNext, matchCount, currentMatchIndex }) => (
+    <div className="bg-slate-900/70 backdrop-blur-sm rounded-md border border-slate-600 p-1 flex items-center text-xs w-full">
+        <input
+            type="text"
+            placeholder="Search formatted JSON..."
+            value={searchTerm}
+            onChange={(e) => onSearchChange(e.target.value)}
+            className="bg-transparent px-2 py-1 w-full focus:outline-none"
+        />
+        <span className="text-slate-400 mx-2 select-none flex-shrink-0">
+            {matchCount > 0 ? `${currentMatchIndex + 1} / ${matchCount}` : '0 / 0'}
+        </span>
+        <div className="flex items-center">
+            <button onClick={onPrev} disabled={matchCount === 0} className="px-1 text-slate-300 hover:text-white disabled:text-slate-600 disabled:cursor-not-allowed">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+            </button>
+            <button onClick={onNext} disabled={matchCount === 0} className="px-1 text-slate-300 hover:text-white disabled:text-slate-600 disabled:cursor-not-allowed">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+            </button>
+        </div>
+    </div>
+);
+
+
 interface ThemeSelectorProps {
     currentThemeColor: ThemeColor;
     setThemeColor: (color: ThemeColor) => void;
@@ -152,15 +185,21 @@ interface HeaderProps {
     onClear: () => void;
     isCopyDisabled: boolean;
     isCopied: boolean;
+    searchProps: SearchBoxProps;
 }
 
-const Header: React.FC<HeaderProps> = ({ theme, themeColor, setThemeColor, onCopy, onClear, isCopyDisabled, isCopied }) => (
+const Header: React.FC<HeaderProps> = ({ theme, themeColor, setThemeColor, onCopy, onClear, isCopyDisabled, isCopied, searchProps }) => (
     <header className={`backdrop-blur-sm p-4 border-b shadow-md sticky top-0 z-20 transition-colors duration-300 ${theme.headerBg} ${theme.headerBorder}`}>
-        <div className="container mx-auto flex items-center justify-between">
-            <h1 className="text-xl font-bold text-white tracking-wider">
+        <div className="container mx-auto flex items-center justify-between gap-4">
+            <h1 className="text-xl font-bold text-white tracking-wider flex-shrink-0">
                 <span className={`transition-colors duration-300 ${theme.primaryText}`}>JSON Beautifier</span> Pro
             </h1>
-            <div className="flex items-center gap-2 sm:gap-4">
+            <div className="flex-1 min-w-0 flex justify-center">
+                <div className="w-full max-w-md">
+                    <SearchBox {...searchProps} />
+                </div>
+            </div>
+            <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
                 <ThemeSelector currentThemeColor={themeColor} setThemeColor={setThemeColor} />
                  <button onClick={onCopy} disabled={isCopyDisabled} className={`flex items-center justify-center px-4 py-2 bg-slate-700 text-white font-semibold rounded-md ${theme.primaryHover} transition-colors focus:outline-none focus:ring-2 ${theme.primaryRing} focus:ring-opacity-75 disabled:opacity-50 disabled:cursor-not-allowed`}>
                     <CopyIcon />
@@ -175,53 +214,16 @@ const Header: React.FC<HeaderProps> = ({ theme, themeColor, setThemeColor, onCop
     </header>
 );
 
-interface SearchBoxProps {
-    searchTerm: string;
-    onSearchChange: (term: string) => void;
-    onPrev: () => void;
-    onNext: () => void;
-    matchCount: number;
-    currentMatchIndex: number;
-}
-
-const SearchBox: React.FC<SearchBoxProps> = ({ searchTerm, onSearchChange, onPrev, onNext, matchCount, currentMatchIndex }) => (
-    <div className="absolute top-2 right-2 bg-slate-900/70 backdrop-blur-sm rounded-md border border-slate-600 p-1 flex items-center text-xs z-10">
-        <input
-            type="text"
-            placeholder="Search..."
-            value={searchTerm}
-            onChange={(e) => onSearchChange(e.target.value)}
-            className="bg-transparent px-2 py-1 w-32 focus:outline-none"
-        />
-        <span className="text-slate-400 mx-2 select-none">
-            {matchCount > 0 ? `${currentMatchIndex + 1} / ${matchCount}` : '0 / 0'}
-        </span>
-        <div className="flex items-center">
-            <button onClick={onPrev} disabled={matchCount === 0} className="px-1 text-slate-300 hover:text-white disabled:text-slate-600 disabled:cursor-not-allowed">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-            </button>
-            <button onClick={onNext} disabled={matchCount === 0} className="px-1 text-slate-300 hover:text-white disabled:text-slate-600 disabled:cursor-not-allowed">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-            </button>
-        </div>
-    </div>
-);
-
-
 interface JsonInputProps {
     value: string;
     onChange: (value: string) => void;
     error: string | null;
-    textareaRef: React.RefObject<HTMLTextAreaElement>;
-    searchProps: SearchBoxProps;
     focusBorderColor: string;
 }
 
-const JsonInput: React.FC<JsonInputProps> = ({ value, onChange, error, textareaRef, searchProps, focusBorderColor }) => (
+const JsonInput: React.FC<JsonInputProps> = ({ value, onChange, error, focusBorderColor }) => (
     <div className="relative h-full flex flex-col">
-        <SearchBox {...searchProps} />
         <textarea
-            ref={textareaRef}
             value={value}
             onChange={(e) => onChange(e.target.value)}
             placeholder="Paste your JSON here..."
@@ -239,10 +241,9 @@ const JsonInput: React.FC<JsonInputProps> = ({ value, onChange, error, textareaR
 
 interface JsonOutputProps {
     highlightedJson: string;
-    searchProps: SearchBoxProps;
 }
 
-const JsonOutput: React.FC<JsonOutputProps> = ({ highlightedJson, searchProps }) => {
+const JsonOutput: React.FC<JsonOutputProps> = ({ highlightedJson }) => {
     const outputRef = useRef<HTMLPreElement>(null);
 
     useEffect(() => {
@@ -253,19 +254,16 @@ const JsonOutput: React.FC<JsonOutputProps> = ({ highlightedJson, searchProps })
     }, [highlightedJson]);
 
     return (
-        <div className="relative h-full bg-slate-800 border-2 border-slate-700 rounded-lg flex flex-col">
-            <SearchBox {...searchProps} />
-            <div className="flex-grow overflow-auto">
-                {highlightedJson ? (
-                    <pre className="p-4 text-base leading-relaxed" ref={outputRef}>
-                        <code dangerouslySetInnerHTML={{ __html: highlightedJson }} className="font-mono" />
-                    </pre>
-                ) : (
-                    <div className="flex items-center justify-center h-full text-slate-500">
-                        <p>Formatted JSON will appear here</p>
-                    </div>
-                )}
-            </div>
+        <div className="h-full bg-slate-800 border-2 border-slate-700 rounded-lg overflow-auto">
+            {highlightedJson ? (
+                <pre className="p-4 text-base leading-relaxed" ref={outputRef}>
+                    <code dangerouslySetInnerHTML={{ __html: highlightedJson }} className="font-mono" />
+                </pre>
+            ) : (
+                <div className="flex items-center justify-center h-full text-slate-500">
+                    <p>Formatted JSON will appear here</p>
+                </div>
+            )}
         </div>
     );
 };
@@ -295,14 +293,9 @@ const App: React.FC = () => {
     const theme = THEMES[themeColor];
     
     // Search State
-    const [inputSearch, setInputSearch] = useState('');
-    const [outputSearch, setOutputSearch] = useState('');
-    const [inputMatches, setInputMatches] = useState<number[]>([]);
-    const [currentInputMatchIndex, setCurrentInputMatchIndex] = useState(0);
-    const [outputMatches, setOutputMatches] = useState<number[]>([]);
-    const [currentOutputMatchIndex, setCurrentOutputMatchIndex] = useState(0);
-
-    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [matches, setMatches] = useState<number[]>([]);
+    const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
     
     const handleBeautify = useCallback((jsonToParse: string) => {
         if (!jsonToParse.trim()) {
@@ -334,8 +327,7 @@ const App: React.FC = () => {
         setHighlightedJson('');
         setError(null);
         setIsCopied(false);
-        setInputSearch('');
-        setOutputSearch('');
+        setSearchTerm('');
     }, []);
 
     const handleCopy = useCallback(() => {
@@ -349,74 +341,42 @@ const App: React.FC = () => {
 
     // --- Search Logic ---
     useEffect(() => {
-        if (inputSearch) {
-            const regex = new RegExp(escapeRegExp(inputSearch), 'gi');
-            const matches = [...rawJson.matchAll(regex)].map(m => m.index!);
-            setInputMatches(matches);
-            setCurrentInputMatchIndex(0);
+        if (searchTerm) {
+            const regex = new RegExp(escapeRegExp(searchTerm), 'gi');
+            const foundMatches = [...formattedJson.matchAll(regex)].map(m => m.index!);
+            setMatches(foundMatches);
+            setCurrentMatchIndex(0);
         } else {
-            setInputMatches([]);
+            setMatches([]);
         }
-    }, [inputSearch, rawJson]);
-    
-    useEffect(() => {
-        if (outputSearch) {
-            const regex = new RegExp(escapeRegExp(outputSearch), 'gi');
-            const matches = [...formattedJson.matchAll(regex)].map(m => m.index!);
-            setOutputMatches(matches);
-            setCurrentOutputMatchIndex(0);
-        } else {
-            setOutputMatches([]);
-        }
-    }, [outputSearch, formattedJson]);
+    }, [searchTerm, formattedJson]);
 
-    const navigateMatches = (direction: 'next' | 'prev', type: 'input' | 'output') => {
-        const [matches, currentIndex, setCurrentIndex] = type === 'input' 
-            ? [inputMatches, currentInputMatchIndex, setCurrentInputMatchIndex]
-            : [outputMatches, currentOutputMatchIndex, setCurrentOutputMatchIndex];
-        
+    const navigateMatches = (direction: 'next' | 'prev') => {
         if (matches.length === 0) return;
 
         let nextIndex;
         if (direction === 'next') {
-            nextIndex = (currentIndex + 1) % matches.length;
+            nextIndex = (currentMatchIndex + 1) % matches.length;
         } else {
-            nextIndex = (currentIndex - 1 + matches.length) % matches.length;
+            nextIndex = (currentMatchIndex - 1 + matches.length) % matches.length;
         }
-        setCurrentIndex(nextIndex);
+        setCurrentMatchIndex(nextIndex);
     };
-    
-    useEffect(() => {
-        if (inputMatches.length > 0 && textareaRef.current) {
-            const matchIndex = inputMatches[currentInputMatchIndex];
-            const end = matchIndex + inputSearch.length;
-            textareaRef.current.focus();
-            textareaRef.current.setSelectionRange(matchIndex, end);
-            
-            const { value, scrollTop } = textareaRef.current;
-            const lineNum = value.substring(0, matchIndex).split('\n').length;
-            const lineHeight = 22; // approx line height
-            const targetScroll = (lineNum - 5) * lineHeight;
-            if (targetScroll > scrollTop + textareaRef.current.clientHeight || targetScroll < scrollTop) {
-                 textareaRef.current.scrollTop = targetScroll;
-            }
-        }
-    }, [currentInputMatchIndex, inputMatches, inputSearch]);
 
-    const finalOutputHtml = useMemo(() => {
-        if (!outputSearch || !highlightedJson) {
+    const highlightedOutputJson = useMemo(() => {
+        if (!searchTerm || !highlightedJson) {
             return highlightedJson;
         }
 
         const segments = highlightedJson.split(/(<[^>]+>)/);
-        const escapedTerm = escapeRegExp(outputSearch);
+        const escapedTerm = escapeRegExp(searchTerm);
         const regex = new RegExp(escapedTerm, 'gi');
         let matchCounter = 0;
 
         const newSegments = segments.map((segment, i) => {
             if (i % 2 === 0) { // Text segment
                 return segment.replace(regex, (match) => {
-                    const isActive = matchCounter === currentOutputMatchIndex;
+                    const isActive = matchCounter === currentMatchIndex;
                     const id = isActive ? 'id="active-search-match"' : '';
                     const activeClass = isActive ? 'active-match' : '';
                     matchCounter++;
@@ -427,7 +387,7 @@ const App: React.FC = () => {
         });
 
         return newSegments.join('');
-    }, [highlightedJson, outputSearch, currentOutputMatchIndex]);
+    }, [highlightedJson, searchTerm, currentMatchIndex]);
 
     return (
         <div className="h-screen flex flex-col font-sans">
@@ -439,6 +399,14 @@ const App: React.FC = () => {
                 onClear={handleClear}
                 isCopied={isCopied}
                 isCopyDisabled={!formattedJson}
+                searchProps={{
+                    searchTerm: searchTerm,
+                    onSearchChange: setSearchTerm,
+                    onPrev: () => navigateMatches('prev'),
+                    onNext: () => navigateMatches('next'),
+                    matchCount: matches.length,
+                    currentMatchIndex: currentMatchIndex
+                }}
             />
             
             <main className="flex-grow container mx-auto p-4 grid md:grid-cols-2 gap-4 min-h-0">
@@ -446,27 +414,10 @@ const App: React.FC = () => {
                     value={rawJson} 
                     onChange={setRawJson} 
                     error={error}
-                    textareaRef={textareaRef}
                     focusBorderColor={theme.focusBorder}
-                    searchProps={{
-                        searchTerm: inputSearch,
-                        onSearchChange: setInputSearch,
-                        onPrev: () => navigateMatches('prev', 'input'),
-                        onNext: () => navigateMatches('next', 'input'),
-                        matchCount: inputMatches.length,
-                        currentMatchIndex: currentInputMatchIndex
-                    }}
                 />
                 <JsonOutput 
-                    highlightedJson={finalOutputHtml}
-                    searchProps={{
-                        searchTerm: outputSearch,
-                        onSearchChange: setOutputSearch,
-                        onPrev: () => navigateMatches('prev', 'output'),
-                        onNext: () => navigateMatches('next', 'output'),
-                        matchCount: outputMatches.length,
-                        currentMatchIndex: currentOutputMatchIndex
-                    }}
+                    highlightedJson={highlightedOutputJson}
                 />
             </main>
         </div>
