@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { highlightJson } from './utils/syntaxHighlighter';
 
@@ -90,6 +91,12 @@ const ClearIcon = () => (
 const PaletteIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+    </svg>
+);
+
+const JwtIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h10a2 2 0 012 2v14a2 2 0 01-2 2z" />
     </svg>
 );
 
@@ -186,9 +193,11 @@ interface HeaderProps {
     isCopyDisabled: boolean;
     isCopied: boolean;
     searchProps: SearchBoxProps;
+    isJwtMode: boolean;
+    onToggleJwtMode: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ theme, themeColor, setThemeColor, onCopy, onClear, isCopyDisabled, isCopied, searchProps }) => (
+const Header: React.FC<HeaderProps> = ({ theme, themeColor, setThemeColor, onCopy, onClear, isCopyDisabled, isCopied, searchProps, isJwtMode, onToggleJwtMode }) => (
     <header className={`backdrop-blur-sm p-4 border-b shadow-md sticky top-0 z-20 transition-colors duration-300 ${theme.headerBg} ${theme.headerBorder}`}>
         <div className="container mx-auto flex items-center justify-between gap-4">
             <h1 className="text-xl font-bold text-white tracking-wider flex-shrink-0">
@@ -201,6 +210,15 @@ const Header: React.FC<HeaderProps> = ({ theme, themeColor, setThemeColor, onCop
             </div>
             <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
                 <ThemeSelector currentThemeColor={themeColor} setThemeColor={setThemeColor} />
+                <button
+                    onClick={onToggleJwtMode}
+                    className={`flex items-center justify-center px-4 py-2 bg-slate-700 text-white font-semibold rounded-md ${theme.primaryHover} transition-colors focus:outline-none focus:ring-2 ${theme.primaryRing} focus:ring-opacity-75
+                        ${isJwtMode ? `!${theme.primary} !ring-2 !${theme.primaryRing} ring-opacity-100` : ''}`}
+                    aria-pressed={isJwtMode}
+                >
+                    <JwtIcon />
+                    Decode JWT
+                </button>
                  <button onClick={onCopy} disabled={isCopyDisabled} className={`flex items-center justify-center px-4 py-2 bg-slate-700 text-white font-semibold rounded-md ${theme.primaryHover} transition-colors focus:outline-none focus:ring-2 ${theme.primaryRing} focus:ring-opacity-75 disabled:opacity-50 disabled:cursor-not-allowed`}>
                     <CopyIcon />
                     {isCopied ? 'Copied!' : 'Copy'}
@@ -226,7 +244,7 @@ const JsonInput: React.FC<JsonInputProps> = ({ value, onChange, error, focusBord
         <textarea
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            placeholder="Paste your JSON here..."
+            placeholder="Paste your JSON or JWT here..."
             className={`flex-grow w-full h-full p-4 bg-slate-800 border-2 border-slate-700 rounded-lg resize-none focus:outline-none ${focusBorderColor} transition-colors font-mono text-base leading-relaxed`}
             spellCheck="false"
         />
@@ -261,7 +279,7 @@ const JsonOutput: React.FC<JsonOutputProps> = ({ highlightedJson }) => {
                 </pre>
             ) : (
                 <div className="flex items-center justify-center h-full text-slate-500">
-                    <p>Formatted JSON will appear here</p>
+                    <p>Formatted output will appear here</p>
                 </div>
             )}
         </div>
@@ -272,6 +290,20 @@ const JsonOutput: React.FC<JsonOutputProps> = ({ highlightedJson }) => {
 
 const escapeRegExp = (string: string) => {
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
+// Helper function to decode Base64Url
+const decodeBase64Url = (base64Url: string): string => {
+    // Replace non-url-safe characters
+    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    // Add padding if missing
+    switch (base64.length % 4) {
+        case 0: break;
+        case 2: base64 += '=='; break;
+        case 3: base64 += '='; break;
+        default: throw new Error('Illegal base64url string!');
+    }
+    return atob(base64);
 };
 
 const App: React.FC = () => {
@@ -296,30 +328,62 @@ const App: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [matches, setMatches] = useState<number[]>([]);
     const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+
+    // JWT Mode State
+    const [isJwtMode, setIsJwtMode] = useState<boolean>(false);
     
-    const handleBeautify = useCallback((jsonToParse: string) => {
-        if (!jsonToParse.trim()) {
+    const processInput = useCallback((jsonToProcess: string, jwtMode: boolean) => {
+        if (!jsonToProcess.trim()) {
             setError(null);
             setFormattedJson('');
             setHighlightedJson('');
             return;
         }
-        try {
-            const parsed = JSON.parse(jsonToParse);
-            const pretty = JSON.stringify(parsed, null, 2);
-            setFormattedJson(pretty);
-            setHighlightedJson(highlightJson(pretty));
-            setError(null);
-        } catch (e: any) {
-            setError(e.message);
-            setFormattedJson('');
-            setHighlightedJson('');
+
+        if (jwtMode) {
+            try {
+                const parts = jsonToProcess.split('.');
+                if (parts.length !== 3) {
+                    throw new Error('Invalid JWT format. A JWT must have 3 parts separated by dots.');
+                }
+
+                const header = JSON.parse(decodeBase64Url(parts[0]));
+                const payload = JSON.parse(decodeBase64Url(parts[1]));
+                // Signature (parts[2]) is not decoded here as it's not JSON
+
+                const decodedJwt = {
+                    header: header,
+                    payload: payload,
+                    signature: parts[2]
+                };
+
+                const pretty = JSON.stringify(decodedJwt, null, 2);
+                setFormattedJson(pretty);
+                setHighlightedJson(highlightJson(pretty));
+                setError(null);
+            } catch (e: any) {
+                setError(`JWT Decoding Error: ${e.message}`);
+                setFormattedJson('');
+                setHighlightedJson('');
+            }
+        } else {
+            try {
+                const parsed = JSON.parse(jsonToProcess);
+                const pretty = JSON.stringify(parsed, null, 2);
+                setFormattedJson(pretty);
+                setHighlightedJson(highlightJson(pretty));
+                setError(null);
+            } catch (e: any) {
+                setError(e.message);
+                setFormattedJson('');
+                setHighlightedJson('');
+            }
         }
-    }, []);
-    
+    }, []); // highlightJson is stable.
+
     useEffect(() => {
-        handleBeautify(rawJson);
-    }, [rawJson, handleBeautify]);
+        processInput(rawJson, isJwtMode);
+    }, [rawJson, isJwtMode, processInput]);
 
     const handleClear = useCallback(() => {
         setRawJson('');
@@ -328,6 +392,7 @@ const App: React.FC = () => {
         setError(null);
         setIsCopied(false);
         setSearchTerm('');
+        setIsJwtMode(false); // Reset JWT mode
     }, []);
 
     const handleCopy = useCallback(() => {
@@ -338,6 +403,10 @@ const App: React.FC = () => {
             });
         }
     }, [formattedJson]);
+
+    const handleToggleJwtMode = useCallback(() => {
+        setIsJwtMode(prevMode => !prevMode);
+    }, []);
 
     // --- Search Logic ---
     useEffect(() => {
@@ -407,6 +476,8 @@ const App: React.FC = () => {
                     matchCount: matches.length,
                     currentMatchIndex: currentMatchIndex
                 }}
+                isJwtMode={isJwtMode}
+                onToggleJwtMode={handleToggleJwtMode}
             />
             
             <main className="flex-grow container mx-auto p-4 grid md:grid-cols-2 gap-4 min-h-0">
