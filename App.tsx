@@ -1,8 +1,5 @@
 
-
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-// import { highlightJson } from './utils/syntaxHighlighter'; // highlightJson is no longer used for rendering output
-
 
 // --- Theme Configuration ---
 
@@ -266,8 +263,8 @@ interface JsonItemProps {
     depth: number;
     searchTerm: string;
     currentMatchIndex: number;
-    registerMatch: (id: number, node: HTMLElement) => void;
-    globalMatchIdCounter: React.MutableRefObject<number>;
+    // Removed registerMatch prop
+    matchRenderIndexRef: React.MutableRefObject<number>; // Renamed from globalMatchIdCounter for clarity
     renderLineEndComma: boolean; // To add comma at the end of lines
 }
 
@@ -275,7 +272,7 @@ const escapeRegExp = (string: string) => {
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
 
-const JsonItem: React.FC<JsonItemProps> = React.memo(({ keyName, value, depth, searchTerm, currentMatchIndex, registerMatch, globalMatchIdCounter, renderLineEndComma }) => {
+const JsonItem: React.FC<JsonItemProps> = React.memo(({ keyName, value, depth, searchTerm, currentMatchIndex, matchRenderIndexRef, renderLineEndComma }) => {
     const [isCollapsed, setIsCollapsed] = useState(false);
     const isObject = typeof value === 'object' && value !== null && !Array.isArray(value);
     const isArray = Array.isArray(value);
@@ -306,23 +303,16 @@ const JsonItem: React.FC<JsonItemProps> = React.memo(({ keyName, value, depth, s
         text.replace(regex, (match, offset) => {
             // Add text before the match
             if (offset > lastIndex) {
-                parts.push(<span key={`text-pre-${globalMatchIdCounter.current}-${lastIndex}`} className={className}>{text.substring(lastIndex, offset)}</span>);
+                parts.push(<span key={`text-pre-${matchRenderIndexRef.current}-${lastIndex}`} className={className}>{text.substring(lastIndex, offset)}</span>);
             }
 
             // Add the matched text with search highlighting
-            const matchId = globalMatchIdCounter.current++; // Assign global ID and increment
+            const matchId = matchRenderIndexRef.current; // Assign global ID
+            matchRenderIndexRef.current++; // Increment for the next match
             const isActive = matchId === currentMatchIndex;
-            const matchRef = useRef<HTMLSpanElement>(null);
-
-            // Register the match element for scrolling
-            useEffect(() => {
-                if (matchRef.current) {
-                    registerMatch(matchId, matchRef.current);
-                }
-            }, [registerMatch, matchId]); 
-
+            
             parts.push(
-                <mark key={`match-${matchId}-${offset}`} className={`search-match ${isActive ? 'active-match' : ''}`} ref={matchRef}>
+                <mark key={`match-${matchId}-${offset}`} data-match-id={matchId} className={`search-match ${isActive ? 'active-match' : ''}`}>
                     <span className={className}>{match}</span>
                 </mark>
             );
@@ -332,10 +322,10 @@ const JsonItem: React.FC<JsonItemProps> = React.memo(({ keyName, value, depth, s
 
         // Add remaining text after the last match
         if (lastIndex < text.length) {
-            parts.push(<span key={`text-post-${globalMatchIdCounter.current}-${lastIndex}`} className={className}>{text.substring(lastIndex)}</span>);
+            parts.push(<span key={`text-post-${matchRenderIndexRef.current}-${lastIndex}`} className={className}>{text.substring(lastIndex)}</span>);
         }
         return <>{parts}</>;
-    }, [searchTerm, currentMatchIndex, globalMatchIdCounter, registerMatch]);
+    }, [searchTerm, currentMatchIndex]); // Dependencies for useCallback. matchRenderIndexRef is a ref, so it's stable.
 
     // Function to render a primitive value
     const renderPrimitive = useCallback((val: any) => {
@@ -363,7 +353,7 @@ const JsonItem: React.FC<JsonItemProps> = React.memo(({ keyName, value, depth, s
                 <span>{indentation}</span>
                 {keyName !== undefined && (
                     <>
-                        {renderTextSegment(JSON.stringify(keyName), 'key')}:
+                        {renderTextSegment(JSON.stringify(keyName), 'key')}:{' '}
                     </>
                 )}
                 <span className="cursor-pointer select-none text-slate-500 mr-1" onClick={toggleCollapse} role="button" aria-expanded={!isCollapsed} aria-label={`Toggle ${isObject ? 'object' : 'array'} collapse`}>
@@ -390,8 +380,7 @@ const JsonItem: React.FC<JsonItemProps> = React.memo(({ keyName, value, depth, s
                                 depth={depth + 1}
                                 searchTerm={searchTerm}
                                 currentMatchIndex={currentMatchIndex}
-                                registerMatch={registerMatch}
-                                globalMatchIdCounter={globalMatchIdCounter}
+                                matchRenderIndexRef={matchRenderIndexRef}
                                 renderLineEndComma={index < entries.length - 1}
                             />
                         ))}
@@ -407,7 +396,7 @@ const JsonItem: React.FC<JsonItemProps> = React.memo(({ keyName, value, depth, s
                 <span>{indentation}</span>
                 {keyName !== undefined && (
                     <>
-                        {renderTextSegment(JSON.stringify(keyName), 'key')}:
+                        {renderTextSegment(JSON.stringify(keyName), 'key')}:{' '}
                     </>
                 )}
                 {renderPrimitive(value)}
@@ -426,30 +415,43 @@ interface CollapsibleJsonOutputProps {
 }
 
 const CollapsibleJsonOutput: React.FC<CollapsibleJsonOutputProps> = React.memo(({ parsedJson, searchTerm, currentMatchIndex }) => {
-    // Maps global match ID to its HTMLElement for scrolling
-    const globalSearchMatchElements = useRef<Map<number, HTMLElement>>(new Map());
     // Counter for assigning unique IDs to each search match during rendering
-    const globalMatchIdCounter = useRef(0);
+    const matchRenderIndexRef = useRef(0);
+    // Stores references to all currently rendered search match elements
+    const allMatchElementsRef = useRef<HTMLElement[]>([]);
 
-    const registerMatch = useCallback((id: number, node: HTMLElement) => {
-        globalSearchMatchElements.current.set(id, node);
-    }, []);
-
-    // Reset the counter and map when JSON or search term changes
-    // This ensures search match IDs are consistent and references are fresh
+    // Reset the counter and collect new match elements when JSON or search term changes
     useEffect(() => {
-        globalMatchIdCounter.current = 0;
-        globalSearchMatchElements.current.clear();
+        matchRenderIndexRef.current = 0; // Reset global match counter for fresh render
+        allMatchElementsRef.current = []; // Clear previous elements
+
+        // If there's a search term, query the DOM for all matches after render
+        if (searchTerm && parsedJson !== null && parsedJson !== undefined) {
+             // Use a setTimeout to ensure DOM is updated before querying
+            const timer = setTimeout(() => {
+                const elements = Array.from(document.querySelectorAll<HTMLElement>('.search-match[data-match-id]'));
+                // Sort elements by their data-match-id to ensure correct order
+                elements.sort((a, b) => {
+                    const idA = parseInt(a.dataset.matchId || '0', 10);
+                    const idB = parseInt(b.dataset.matchId || '0', 10);
+                    return idA - idB;
+                });
+                allMatchElementsRef.current = elements;
+            }, 0); // Short delay to allow DOM to update
+
+            return () => clearTimeout(timer); // Cleanup
+        }
     }, [parsedJson, searchTerm]);
 
-    // Scroll to active match when currentMatchIndex, search term, or JSON changes
+    // Scroll to active match when currentMatchIndex, or the list of matches changes
     useEffect(() => {
-        const activeMatchNode = globalSearchMatchElements.current.get(currentMatchIndex);
-        if (activeMatchNode) {
-            activeMatchNode.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        if (searchTerm && allMatchElementsRef.current.length > 0) {
+            const activeMatchNode = allMatchElementsRef.current[currentMatchIndex];
+            if (activeMatchNode) {
+                activeMatchNode.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }
         }
-    }, [currentMatchIndex, searchTerm, parsedJson]);
-
+    }, [currentMatchIndex, searchTerm, allMatchElementsRef.current]); // Dependencies include allMatchElementsRef.current
 
     if (parsedJson === null || parsedJson === undefined) {
         return (
@@ -468,8 +470,7 @@ const CollapsibleJsonOutput: React.FC<CollapsibleJsonOutputProps> = React.memo((
                     depth={0}
                     searchTerm={searchTerm}
                     currentMatchIndex={currentMatchIndex}
-                    registerMatch={registerMatch}
-                    globalMatchIdCounter={globalMatchIdCounter}
+                    matchRenderIndexRef={matchRenderIndexRef}
                     renderLineEndComma={false} // Root doesn't need a comma at the end
                 />
             </pre>
@@ -517,7 +518,8 @@ const App: React.FC = () => {
     
     // Search State
     const [searchTerm, setSearchTerm] = useState('');
-    const [matches, setMatches] = useState<number[]>([]); // Stores indices for total match count
+    // matches now stores only the count as the actual match elements are managed in CollapsibleJsonOutput
+    const [matchCount, setMatchCount] = useState(0); 
     const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
 
     // JWT Mode State
@@ -529,7 +531,7 @@ const App: React.FC = () => {
             setFormattedJson('');
             setParsedJson(null); // Clear parsed JSON for display
             setSearchTerm(''); // Clear search on empty input
-            setMatches([]);
+            setMatchCount(0); // Reset match count
             setCurrentMatchIndex(0);
             return;
         }
@@ -588,7 +590,7 @@ const App: React.FC = () => {
         setError(null);
         setIsCopied(false);
         setSearchTerm('');
-        setMatches([]); // Clear matches
+        setMatchCount(0); // Clear matches count
         setCurrentMatchIndex(0); // Reset index
         setIsJwtMode(false); // Reset JWT mode
     }, []);
@@ -606,32 +608,31 @@ const App: React.FC = () => {
         setIsJwtMode(prevMode => !prevMode);
     }, []);
 
-    // --- Search Logic ---
-    // This effect calculates total matches in the formattedJson string for the header count.
+    // --- Search Logic (only for counting total matches in the header) ---
     // The actual highlighting and scrolling are handled by CollapsibleJsonOutput/JsonItem.
     useEffect(() => {
         if (searchTerm && formattedJson) {
             const regex = new RegExp(escapeRegExp(searchTerm), 'gi');
-            const foundMatches = [...formattedJson.matchAll(regex)].map(m => m.index!);
-            setMatches(foundMatches);
+            const foundMatchesCount = (formattedJson.match(regex) || []).length;
+            setMatchCount(foundMatchesCount);
             setCurrentMatchIndex(0); // Reset current match index when search term or content changes
         } else {
-            setMatches([]);
+            setMatchCount(0);
             setCurrentMatchIndex(0);
         }
     }, [searchTerm, formattedJson]);
 
     const navigateMatches = useCallback((direction: 'next' | 'prev') => {
-        if (matches.length === 0) return;
+        if (matchCount === 0) return;
 
         let nextIndex;
         if (direction === 'next') {
-            nextIndex = (currentMatchIndex + 1) % matches.length;
+            nextIndex = (currentMatchIndex + 1) % matchCount;
         } else {
-            nextIndex = (currentMatchIndex - 1 + matches.length) % matches.length;
+            nextIndex = (currentMatchIndex - 1 + matchCount) % matchCount;
         }
         setCurrentMatchIndex(nextIndex);
-    }, [matches, currentMatchIndex]);
+    }, [matchCount, currentMatchIndex]);
 
 
     return (
@@ -649,7 +650,7 @@ const App: React.FC = () => {
                     onSearchChange: setSearchTerm,
                     onPrev: () => navigateMatches('prev'),
                     onNext: () => navigateMatches('next'),
-                    matchCount: matches.length,
+                    matchCount: matchCount, // Use new matchCount state
                     currentMatchIndex: currentMatchIndex
                 }}
                 isJwtMode={isJwtMode}
