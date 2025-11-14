@@ -1,6 +1,8 @@
 
+
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { highlightJson } from './utils/syntaxHighlighter';
+// import { highlightJson } from './utils/syntaxHighlighter'; // highlightJson is no longer used for rendering output
+
 
 // --- Theme Configuration ---
 
@@ -84,7 +86,7 @@ const CopyIcon = () => (
 
 const ClearIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 2 0 00-1 1v3M4 7h16" />
     </svg>
 );
 
@@ -257,40 +259,227 @@ const JsonInput: React.FC<JsonInputProps> = ({ value, onChange, error, focusBord
 );
 
 
-interface JsonOutputProps {
-    highlightedJson: string;
+// --- JsonItem Component (Recursive for Collapsible JSON) ---
+interface JsonItemProps {
+    keyName?: string | number; // Key for objects, index for arrays
+    value: any;
+    depth: number;
+    searchTerm: string;
+    currentMatchIndex: number;
+    registerMatch: (id: number, node: HTMLElement) => void;
+    globalMatchIdCounter: React.MutableRefObject<number>;
+    renderLineEndComma: boolean; // To add comma at the end of lines
 }
-
-const JsonOutput: React.FC<JsonOutputProps> = ({ highlightedJson }) => {
-    const outputRef = useRef<HTMLPreElement>(null);
-
-    useEffect(() => {
-        const activeElement = outputRef.current?.querySelector('#active-search-match');
-        if (activeElement) {
-            activeElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        }
-    }, [highlightedJson]);
-
-    return (
-        <div className="h-full bg-slate-800 border-2 border-slate-700 rounded-lg overflow-auto">
-            {highlightedJson ? (
-                <pre className="p-4 text-base leading-relaxed" ref={outputRef}>
-                    <code dangerouslySetInnerHTML={{ __html: highlightedJson }} className="font-mono" />
-                </pre>
-            ) : (
-                <div className="flex items-center justify-center h-full text-slate-500">
-                    <p>Formatted output will appear here</p>
-                </div>
-            )}
-        </div>
-    );
-};
-
-// --- Main App Component ---
 
 const escapeRegExp = (string: string) => {
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
+
+const JsonItem: React.FC<JsonItemProps> = React.memo(({ keyName, value, depth, searchTerm, currentMatchIndex, registerMatch, globalMatchIdCounter, renderLineEndComma }) => {
+    const [isCollapsed, setIsCollapsed] = useState(false);
+    const isObject = typeof value === 'object' && value !== null && !Array.isArray(value);
+    const isArray = Array.isArray(value);
+
+    const toggleCollapse = useCallback(() => setIsCollapsed(prev => !prev), []);
+
+    // Helper to apply syntax highlighting classes and search highlights to a string value
+    const renderTextSegment = useCallback((text: string, type: 'key' | 'string' | 'number' | 'boolean' | 'null') => {
+        let className = '';
+        switch (type) {
+            case 'key': className = 'text-sky-400'; break;
+            case 'string': className = 'text-emerald-400'; break;
+            case 'number': className = 'text-fuchsia-400'; break;
+            case 'boolean': className = 'text-amber-400'; break;
+            case 'null': className = 'text-slate-400'; break;
+        }
+
+        if (!searchTerm) {
+            return <span className={className}>{text}</span>;
+        }
+
+        const escapedTerm = escapeRegExp(searchTerm);
+        const regex = new RegExp(escapedTerm, 'gi');
+        const parts: React.ReactNode[] = [];
+        let lastIndex = 0;
+
+        // Apply search highlighting
+        text.replace(regex, (match, offset) => {
+            // Add text before the match
+            if (offset > lastIndex) {
+                parts.push(<span key={`text-pre-${globalMatchIdCounter.current}-${lastIndex}`} className={className}>{text.substring(lastIndex, offset)}</span>);
+            }
+
+            // Add the matched text with search highlighting
+            const matchId = globalMatchIdCounter.current++; // Assign global ID and increment
+            const isActive = matchId === currentMatchIndex;
+            const matchRef = useRef<HTMLSpanElement>(null);
+
+            // Register the match element for scrolling
+            useEffect(() => {
+                if (matchRef.current) {
+                    registerMatch(matchId, matchRef.current);
+                }
+            }, [registerMatch, matchId]); 
+
+            parts.push(
+                <mark key={`match-${matchId}-${offset}`} className={`search-match ${isActive ? 'active-match' : ''}`} ref={matchRef}>
+                    <span className={className}>{match}</span>
+                </mark>
+            );
+            lastIndex = offset + match.length;
+            return match;
+        });
+
+        // Add remaining text after the last match
+        if (lastIndex < text.length) {
+            parts.push(<span key={`text-post-${globalMatchIdCounter.current}-${lastIndex}`} className={className}>{text.substring(lastIndex)}</span>);
+        }
+        return <>{parts}</>;
+    }, [searchTerm, currentMatchIndex, globalMatchIdCounter, registerMatch]);
+
+    // Function to render a primitive value
+    const renderPrimitive = useCallback((val: any) => {
+        const stringified = JSON.stringify(val); // Stringify to handle quotes for strings and correct representation
+        let type: 'string' | 'number' | 'boolean' | 'null';
+        if (typeof val === 'string') type = 'string';
+        else if (typeof val === 'number') type = 'number';
+        else if (typeof val === 'boolean') type = 'boolean';
+        else type = 'null';
+        return renderTextSegment(stringified, type);
+    }, [renderTextSegment]);
+
+
+    const indentation = `  `.repeat(depth); // Visual indentation
+
+    // Render logic for objects and arrays
+    if (isObject || isArray) {
+        const entries = isObject ? Object.entries(value) : (value as any[]).map((v, i) => ([i, v]));
+        const opener = isObject ? '{' : '[';
+        const closer = isObject ? '}' : ']';
+        const lengthText = isObject ? `${Object.keys(value).length} items` : `${(value as any[]).length} items`;
+
+        return (
+            <div className="json-node leading-relaxed">
+                <span>{indentation}</span>
+                {keyName !== undefined && (
+                    <>
+                        {renderTextSegment(JSON.stringify(keyName), 'key')}:
+                    </>
+                )}
+                <span className="cursor-pointer select-none text-slate-500 mr-1" onClick={toggleCollapse} role="button" aria-expanded={!isCollapsed} aria-label={`Toggle ${isObject ? 'object' : 'array'} collapse`}>
+                    {isCollapsed ? (
+                        <svg className="inline h-4 w-4 transform rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                    ) : (
+                        <svg className="inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                    )}
+                </span>
+                <span className="text-slate-400">{opener}</span>
+                {isCollapsed && (
+                    <>
+                        <span className="text-slate-500 ml-1">... {lengthText} ...</span>
+                        <span className="text-slate-400">{closer}{renderLineEndComma ? ',' : ''}</span>
+                    </>
+                )}
+                {!isCollapsed && (
+                    <div className="ml-0">
+                        {entries.map(([childKey, childValue], index) => (
+                            <JsonItem
+                                key={isObject ? childKey : `arr-${depth}-${index}`} // Use key for objects, unique index for arrays
+                                keyName={isObject ? childKey : undefined}
+                                value={childValue}
+                                depth={depth + 1}
+                                searchTerm={searchTerm}
+                                currentMatchIndex={currentMatchIndex}
+                                registerMatch={registerMatch}
+                                globalMatchIdCounter={globalMatchIdCounter}
+                                renderLineEndComma={index < entries.length - 1}
+                            />
+                        ))}
+                        <span>{indentation}</span>
+                        <span className="text-slate-400">{closer}{renderLineEndComma ? ',' : ''}</span>
+                    </div>
+                )}
+            </div>
+        );
+    } else { // Primitive value
+        return (
+            <div className="json-node leading-relaxed">
+                <span>{indentation}</span>
+                {keyName !== undefined && (
+                    <>
+                        {renderTextSegment(JSON.stringify(keyName), 'key')}:
+                    </>
+                )}
+                {renderPrimitive(value)}
+                {renderLineEndComma ? <span className="text-slate-400">,</span> : ''}
+            </div>
+        );
+    }
+});
+JsonItem.displayName = 'JsonItem'; // For React Dev Tools
+
+// --- CollapsibleJsonOutput Component (Wrapper for Collapsible JSON) ---
+interface CollapsibleJsonOutputProps {
+    parsedJson: any;
+    searchTerm: string;
+    currentMatchIndex: number;
+}
+
+const CollapsibleJsonOutput: React.FC<CollapsibleJsonOutputProps> = React.memo(({ parsedJson, searchTerm, currentMatchIndex }) => {
+    // Maps global match ID to its HTMLElement for scrolling
+    const globalSearchMatchElements = useRef<Map<number, HTMLElement>>(new Map());
+    // Counter for assigning unique IDs to each search match during rendering
+    const globalMatchIdCounter = useRef(0);
+
+    const registerMatch = useCallback((id: number, node: HTMLElement) => {
+        globalSearchMatchElements.current.set(id, node);
+    }, []);
+
+    // Reset the counter and map when JSON or search term changes
+    // This ensures search match IDs are consistent and references are fresh
+    useEffect(() => {
+        globalMatchIdCounter.current = 0;
+        globalSearchMatchElements.current.clear();
+    }, [parsedJson, searchTerm]);
+
+    // Scroll to active match when currentMatchIndex, search term, or JSON changes
+    useEffect(() => {
+        const activeMatchNode = globalSearchMatchElements.current.get(currentMatchIndex);
+        if (activeMatchNode) {
+            activeMatchNode.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+    }, [currentMatchIndex, searchTerm, parsedJson]);
+
+
+    if (parsedJson === null || parsedJson === undefined) {
+        return (
+            <div className="flex items-center justify-center h-full text-slate-500">
+                <p>Formatted output will appear here</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="h-full bg-slate-800 border-2 border-slate-700 rounded-lg overflow-auto">
+            <pre className="p-4 text-base leading-relaxed font-mono">
+                <JsonItem
+                    keyName={undefined} // Root element has no key
+                    value={parsedJson}
+                    depth={0}
+                    searchTerm={searchTerm}
+                    currentMatchIndex={currentMatchIndex}
+                    registerMatch={registerMatch}
+                    globalMatchIdCounter={globalMatchIdCounter}
+                    renderLineEndComma={false} // Root doesn't need a comma at the end
+                />
+            </pre>
+        </div>
+    );
+});
+CollapsibleJsonOutput.displayName = 'CollapsibleJsonOutput';
+
+
+// --- Main App Component ---
 
 // Helper function to decode Base64Url
 const decodeBase64Url = (base64Url: string): string => {
@@ -308,11 +497,13 @@ const decodeBase64Url = (base64Url: string): string => {
 
 const App: React.FC = () => {
     const [rawJson, setRawJson] = useState<string>('');
-    const [formattedJson, setFormattedJson] = useState<string>('');
-    const [highlightedJson, setHighlightedJson] = useState<string>('');
+    const [formattedJson, setFormattedJson] = useState<string>(''); // Used for copying and search indexing
     const [error, setError] = useState<string | null>(null);
     const [isCopied, setIsCopied] = useState<boolean>(false);
     
+    // New state for parsed JSON object, used by the CollapsibleJsonOutput
+    const [parsedJson, setParsedJson] = useState<any>(null);
+
     const [themeColor, setThemeColor] = useState<ThemeColor>(() => {
         const savedTheme = localStorage.getItem('json-beautifier-theme') as ThemeColor | null;
         return savedTheme || 'blue';
@@ -326,7 +517,7 @@ const App: React.FC = () => {
     
     // Search State
     const [searchTerm, setSearchTerm] = useState('');
-    const [matches, setMatches] = useState<number[]>([]);
+    const [matches, setMatches] = useState<number[]>([]); // Stores indices for total match count
     const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
 
     // JWT Mode State
@@ -336,9 +527,15 @@ const App: React.FC = () => {
         if (!jsonToProcess.trim()) {
             setError(null);
             setFormattedJson('');
-            setHighlightedJson('');
+            setParsedJson(null); // Clear parsed JSON for display
+            setSearchTerm(''); // Clear search on empty input
+            setMatches([]);
+            setCurrentMatchIndex(0);
             return;
         }
+
+        let processedData: any = null;
+        let formattedOutputString = '';
 
         if (jwtMode) {
             try {
@@ -357,29 +554,28 @@ const App: React.FC = () => {
                     signature: parts[2]
                 };
 
-                const pretty = JSON.stringify(decodedJwt, null, 2);
-                setFormattedJson(pretty);
-                setHighlightedJson(highlightJson(pretty));
+                processedData = decodedJwt;
+                formattedOutputString = JSON.stringify(decodedJwt, null, 2);
                 setError(null);
             } catch (e: any) {
                 setError(`JWT Decoding Error: ${e.message}`);
                 setFormattedJson('');
-                setHighlightedJson('');
+                setParsedJson(null); // Clear parsed JSON on error
             }
         } else {
             try {
-                const parsed = JSON.parse(jsonToProcess);
-                const pretty = JSON.stringify(parsed, null, 2);
-                setFormattedJson(pretty);
-                setHighlightedJson(highlightJson(pretty));
+                processedData = JSON.parse(jsonToProcess);
+                formattedOutputString = JSON.stringify(processedData, null, 2);
                 setError(null);
             } catch (e: any) {
                 setError(e.message);
                 setFormattedJson('');
-                setHighlightedJson('');
+                setParsedJson(null); // Clear parsed JSON on error
             }
         }
-    }, []); // highlightJson is stable.
+        setParsedJson(processedData); // Update parsed JSON for display
+        setFormattedJson(formattedOutputString); // Update formatted string for copy/search
+    }, []);
 
     useEffect(() => {
         processInput(rawJson, isJwtMode);
@@ -388,10 +584,12 @@ const App: React.FC = () => {
     const handleClear = useCallback(() => {
         setRawJson('');
         setFormattedJson('');
-        setHighlightedJson('');
+        setParsedJson(null); // Clear parsed JSON
         setError(null);
         setIsCopied(false);
         setSearchTerm('');
+        setMatches([]); // Clear matches
+        setCurrentMatchIndex(0); // Reset index
         setIsJwtMode(false); // Reset JWT mode
     }, []);
 
@@ -409,18 +607,21 @@ const App: React.FC = () => {
     }, []);
 
     // --- Search Logic ---
+    // This effect calculates total matches in the formattedJson string for the header count.
+    // The actual highlighting and scrolling are handled by CollapsibleJsonOutput/JsonItem.
     useEffect(() => {
-        if (searchTerm) {
+        if (searchTerm && formattedJson) {
             const regex = new RegExp(escapeRegExp(searchTerm), 'gi');
             const foundMatches = [...formattedJson.matchAll(regex)].map(m => m.index!);
             setMatches(foundMatches);
-            setCurrentMatchIndex(0);
+            setCurrentMatchIndex(0); // Reset current match index when search term or content changes
         } else {
             setMatches([]);
+            setCurrentMatchIndex(0);
         }
     }, [searchTerm, formattedJson]);
 
-    const navigateMatches = (direction: 'next' | 'prev') => {
+    const navigateMatches = useCallback((direction: 'next' | 'prev') => {
         if (matches.length === 0) return;
 
         let nextIndex;
@@ -430,33 +631,8 @@ const App: React.FC = () => {
             nextIndex = (currentMatchIndex - 1 + matches.length) % matches.length;
         }
         setCurrentMatchIndex(nextIndex);
-    };
+    }, [matches, currentMatchIndex]);
 
-    const highlightedOutputJson = useMemo(() => {
-        if (!searchTerm || !highlightedJson) {
-            return highlightedJson;
-        }
-
-        const segments = highlightedJson.split(/(<[^>]+>)/);
-        const escapedTerm = escapeRegExp(searchTerm);
-        const regex = new RegExp(escapedTerm, 'gi');
-        let matchCounter = 0;
-
-        const newSegments = segments.map((segment, i) => {
-            if (i % 2 === 0) { // Text segment
-                return segment.replace(regex, (match) => {
-                    const isActive = matchCounter === currentMatchIndex;
-                    const id = isActive ? 'id="active-search-match"' : '';
-                    const activeClass = isActive ? 'active-match' : '';
-                    matchCounter++;
-                    return `<mark ${id} class="search-match ${activeClass}">${match}</mark>`;
-                });
-            }
-            return segment; // Tag segment
-        });
-
-        return newSegments.join('');
-    }, [highlightedJson, searchTerm, currentMatchIndex]);
 
     return (
         <div className="h-screen flex flex-col font-sans">
@@ -487,8 +663,10 @@ const App: React.FC = () => {
                     error={error}
                     focusBorderColor={theme.focusBorder}
                 />
-                <JsonOutput 
-                    highlightedJson={highlightedOutputJson}
+                <CollapsibleJsonOutput 
+                    parsedJson={parsedJson}
+                    searchTerm={searchTerm}
+                    currentMatchIndex={currentMatchIndex}
                 />
             </main>
         </div>
